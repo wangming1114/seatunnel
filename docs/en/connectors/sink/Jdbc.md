@@ -780,6 +780,37 @@ sink {
 }
 ```
 
+### GBase 8a save mode
+
+GBase 8a supports `schema_save_mode` and `data_save_mode` (for example `DROP_DATA` truncates the
+target table before writing). Notes for the auto-created table:
+
+- Column types follow the GBase 8a type system: `STRING` maps to `VARCHAR(n)` when the length is at
+  most 10922, otherwise to `TEXT`; `BYTES` maps to `BLOB` / `LONGBLOB`; `TIMESTAMP` and
+  `TIMESTAMP_TZ` map to `DATETIME` (a `TIMESTAMP_TZ` value, such as a MySQL `TIMESTAMP` column, is
+  written as the local date-time of the same instant in the worker JVM time zone); `BOOLEAN` maps to `TINYINT(1)`; `DECIMAL` precision is capped at 65.
+- No `PRIMARY KEY`, `UNIQUE` or index clause is generated, because GBase 8a does not enforce these
+  constraints. No `DISTRIBUTED BY` clause is generated, so GBase 8a creates a randomly distributed
+  table; create the table yourself if you need a hash distribution column.
+- GBase 8a has no key-conflict based upsert, so with `primary_keys` set the sink checks whether each
+  row exists and then updates or inserts it.
+
+```hocon
+sink {
+    jdbc {
+        url = "jdbc:gbase://localhost:5258/test"
+        driver = "com.gbase.jdbc.Driver"
+        username = "root"
+        password = "root"
+        generate_sink_sql = true
+        database = "test"
+        table = "sink_table"
+        schema_save_mode = "CREATE_SCHEMA_WHEN_NOT_EXIST"
+        data_save_mode = "DROP_DATA"
+    }
+}
+```
+
 ### PostgreSQL 9.5 and earlier CDC compatibility
 
 For PostgreSQL versions 9.5 and below, setting `compatible_mode` to `postgresLow` to enable support for PostgreSQL Change Data Capture (CDC) operations.

@@ -17,93 +17,47 @@
 
 package org.apache.seatunnel.connectors.seatunnel.jdbc.internal.dialect.gbase8a;
 
-import org.apache.seatunnel.api.table.type.BasicType;
-import org.apache.seatunnel.api.table.type.DecimalType;
-import org.apache.seatunnel.api.table.type.LocalTimeType;
-import org.apache.seatunnel.api.table.type.PrimitiveByteArrayType;
-import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
-import org.apache.seatunnel.common.exception.CommonError;
-import org.apache.seatunnel.connectors.seatunnel.jdbc.internal.dialect.DatabaseIdentifier;
+import org.apache.seatunnel.api.table.catalog.Column;
+import org.apache.seatunnel.api.table.converter.BasicTypeDefine;
+import org.apache.seatunnel.connectors.seatunnel.common.source.TypeDefineUtils;
 import org.apache.seatunnel.connectors.seatunnel.jdbc.internal.dialect.JdbcDialectTypeMapper;
-
-import lombok.extern.slf4j.Slf4j;
 
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.List;
 
-@Slf4j
+/** Maps JDBC result set metadata of GBase 8a to SeaTunnel columns. */
 public class Gbase8aTypeMapper implements JdbcDialectTypeMapper {
 
-    // ref http://www.gbase.cn/down/4419.html
-    // ============================data types=====================
-    private static final String GBASE8A_UNKNOWN = "UNKNOWN";
-
-    // -------------------------number----------------------------
-    private static final String GBASE8A_INT = "INT";
-    private static final String GBASE8A_TINYINT = "TINYINT";
-    private static final String GBASE8A_SMALLINT = "SMALLINT";
-    private static final String GBASE8A_BIGINT = "BIGINT";
-    private static final String GBASE8A_DECIMAL = "DECIMAL";
-    private static final String GBASE8A_FLOAT = "FLOAT";
-    private static final String GBASE8A_DOUBLE = "DOUBLE";
-
-    // -------------------------string----------------------------
-    private static final String GBASE8A_CHAR = "CHAR";
-    private static final String GBASE8A_VARCHAR = "VARCHAR";
-
-    // ------------------------------time-------------------------
-    private static final String GBASE8A_DATE = "DATE";
-    private static final String GBASE8A_TIME = "TIME";
-    private static final String GBASE8A_TIMESTAMP = "TIMESTAMP";
-    private static final String GBASE8A_DATETIME = "DATETIME";
-
-    // ------------------------------blob-------------------------
-    private static final String GBASE8A_BLOB = "BLOB";
-    private static final String GBASE8A_TEXT = "TEXT";
+    private static final List<String> CHARACTER_TYPES = Arrays.asList("CHAR", "VARCHAR");
 
     @Override
-    public SeaTunnelDataType<?> mapping(ResultSetMetaData metadata, int colIndex)
-            throws SQLException {
-        String gbase8aType = metadata.getColumnTypeName(colIndex).toUpperCase();
-        int precision = metadata.getPrecision(colIndex);
+    public Column mappingColumn(BasicTypeDefine typeDefine) {
+        return Gbase8aTypeConverter.INSTANCE.convert(typeDefine);
+    }
+
+    @Override
+    public Column mappingColumn(ResultSetMetaData metadata, int colIndex) throws SQLException {
+        String columnName = metadata.getColumnLabel(colIndex);
+        String nativeType = metadata.getColumnTypeName(colIndex).toUpperCase();
+        int isNullable = metadata.isNullable(colIndex);
+        long precision = metadata.getPrecision(colIndex);
         int scale = metadata.getScale(colIndex);
-        switch (gbase8aType) {
-            case GBASE8A_TINYINT:
-                return BasicType.BYTE_TYPE;
-            case GBASE8A_SMALLINT:
-                return BasicType.SHORT_TYPE;
-            case GBASE8A_INT:
-                return BasicType.INT_TYPE;
-            case GBASE8A_BIGINT:
-                return BasicType.LONG_TYPE;
-            case GBASE8A_DECIMAL:
-                if (precision < 38) {
-                    return new DecimalType(precision, scale);
-                }
-                return new DecimalType(38, 18);
-            case GBASE8A_DOUBLE:
-                return BasicType.DOUBLE_TYPE;
-            case GBASE8A_FLOAT:
-                return BasicType.FLOAT_TYPE;
-            case GBASE8A_CHAR:
-            case GBASE8A_VARCHAR:
-                return BasicType.STRING_TYPE;
-            case GBASE8A_DATE:
-                return LocalTimeType.LOCAL_DATE_TYPE;
-            case GBASE8A_TIME:
-                return LocalTimeType.LOCAL_TIME_TYPE;
-            case GBASE8A_TIMESTAMP:
-            case GBASE8A_DATETIME:
-                return LocalTimeType.LOCAL_DATE_TIME_TYPE;
-            case GBASE8A_BLOB:
-            case GBASE8A_TEXT:
-                return PrimitiveByteArrayType.INSTANCE;
-                // Doesn't support yet
-            case GBASE8A_UNKNOWN:
-            default:
-                final String jdbcColumnName = metadata.getColumnName(colIndex);
-                throw CommonError.convertToSeaTunnelTypeError(
-                        DatabaseIdentifier.GBASE_8A, gbase8aType, jdbcColumnName);
+        if (CHARACTER_TYPES.contains(nativeType)) {
+            precision = Math.max(precision, TypeDefineUtils.charTo4ByteLength(precision));
         }
+
+        BasicTypeDefine typeDefine =
+                BasicTypeDefine.builder()
+                        .name(columnName)
+                        .columnType(nativeType)
+                        .dataType(nativeType)
+                        .nullable(isNullable == ResultSetMetaData.columnNullable)
+                        .length(precision)
+                        .precision(precision)
+                        .scale(scale)
+                        .build();
+        return mappingColumn(typeDefine);
     }
 }

@@ -5,6 +5,13 @@ You need to check this document before you upgrade to related version.
 
 ## dev
 
+### JDBC GBase 8a: `TEXT` columns are read as `STRING`
+
+- **Behavior change: GBase 8a `TEXT` columns map to SeaTunnel `STRING` instead of `BYTES`**
+  - **Description**: The GBase 8a dialect now has a full type converter and a catalog, which enable `schema_save_mode` / `data_save_mode` for the JDBC sink. As part of this, `TEXT` is mapped to `STRING`, the same as `CHAR` / `VARCHAR`. It was previously mapped to `BYTES`.
+  - **Impact**: Jobs that read GBase 8a `TEXT` columns now get strings. Downstream sinks or transforms that expected byte arrays for these columns receive text instead, and auto-created target tables use a character type for them.
+  - **Migration Guide**: No configuration change is needed. If a downstream step relied on `BYTES`, convert the column explicitly (for example with the SQL transform), or read it with a `query` that casts it to a binary type.
+
 ### JDBC Sink: fail safely after losing uncommitted work
 
 - **Affected jobs**: non-XA JDBC sinks with checkpointing enabled and a manual-commit connection

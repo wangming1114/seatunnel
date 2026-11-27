@@ -772,6 +772,30 @@ sink {
 }
 ```
 
+### GBase 8a 的 save mode
+
+GBase 8a 支持 `schema_save_mode` 和 `data_save_mode`（例如 `DROP_DATA` 会在写入前清空目标表）。自动建表时需要注意：
+
+- 列类型遵循 GBase 8a 的类型体系：`STRING` 在长度不超过 10922 时映射为 `VARCHAR(n)`，否则映射为 `TEXT`；`BYTES` 映射为 `BLOB` / `LONGBLOB`；`TIMESTAMP` 和 `TIMESTAMP_TZ` 映射为 `DATETIME`（`TIMESTAMP_TZ` 的值，例如 MySQL 的 `TIMESTAMP` 列，会换算成 worker JVM 时区下同一时刻的本地时间后写入）；`BOOLEAN` 映射为 `TINYINT(1)`；`DECIMAL` 的精度上限为 65。
+- 不生成 `PRIMARY KEY`、`UNIQUE` 和索引子句，因为 GBase 8a 不强制这些约束。也不生成 `DISTRIBUTED BY` 子句，GBase 8a 会建成随机分布表；如需指定哈希分布列，请手动建表。
+- GBase 8a 没有基于主键冲突的 upsert，因此配置了 `primary_keys` 时，Sink 会先查询每行是否存在，再执行更新或插入。
+
+```hocon
+sink {
+    jdbc {
+        url = "jdbc:gbase://localhost:5258/test"
+        driver = "com.gbase.jdbc.Driver"
+        username = "root"
+        password = "root"
+        generate_sink_sql = true
+        database = "test"
+        table = "sink_table"
+        schema_save_mode = "CREATE_SCHEMA_WHEN_NOT_EXIST"
+        data_save_mode = "DROP_DATA"
+    }
+}
+```
+
 ### PostgreSQL 9.5 及以下版本 CDC 兼容模式
 
 Postgres 9.5及以下版本，通过设置 `compatible_mode` 配置为 `postgresLow` 来支持 Postgres CDC 操作

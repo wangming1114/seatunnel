@@ -4,6 +4,13 @@
 
 ## dev
 
+### JDBC GBase 8a：`TEXT` 列读取为 `STRING`
+
+- **行为变化：GBase 8a 的 `TEXT` 列映射为 SeaTunnel `STRING`，不再是 `BYTES`**
+  - **说明**：GBase 8a 方言新增了完整的类型转换器和 Catalog，JDBC Sink 因此支持 `schema_save_mode` / `data_save_mode`。同时 `TEXT` 改为与 `CHAR` / `VARCHAR` 一样映射为 `STRING`，此前映射为 `BYTES`。
+  - **影响**：读取 GBase 8a `TEXT` 列的作业现在得到字符串。下游 Sink 或 Transform 如果按字节数组处理这些列，现在会收到文本；自动建表时这些列也会建成字符类型。
+  - **迁移指南**：无需修改配置。如果下游依赖 `BYTES`，请显式转换该列（例如使用 SQL Transform），或在 `query` 中将其转换为二进制类型后读取。
+
 ### JDBC Sink：未提交数据丢失后拒绝提交
 
 - **影响范围**：开启 checkpoint 且使用手动提交连接的非 XA JDBC Sink（`auto_commit = false`，

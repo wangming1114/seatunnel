@@ -21,16 +21,27 @@ package org.apache.seatunnel.connectors.seatunnel.jdbc;
 import org.apache.seatunnel.shade.com.google.common.collect.Lists;
 import org.apache.seatunnel.shade.org.apache.commons.lang3.tuple.Pair;
 
+import org.apache.seatunnel.api.table.catalog.TablePath;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.common.exception.SeaTunnelRuntimeException;
+import org.apache.seatunnel.common.utils.JdbcUrlUtil;
+import org.apache.seatunnel.connectors.seatunnel.jdbc.catalog.gbase8a.Gbase8aCatalog;
+import org.apache.seatunnel.e2e.common.container.TestContainer;
 
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.TestTemplate;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerLoggerFactory;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -47,6 +58,9 @@ public class JdbcGBase8aIT extends AbstractJdbcIT {
     private static final String GBASE_DATABASE = "seatunnel";
     private static final String GBASE_SOURCE = "e2e_table_source";
     private static final String GBASE_SINK = "e2e_table_sink";
+    private static final String GBASE_CATALOG_TABLE = "e2e_table_catalog";
+    private static final String GBASE_SAVE_MODE_SINK = "e2e_table_sink_save_mode";
+    private static final String SAVE_MODE_CONFIG_FILE = "/jdbc_gbase8a_save_mode.conf";
 
     private static final String GBASE_USERNAME = "root";
     private static final String GBASE_PASSWORD = "root";
@@ -103,6 +117,8 @@ public class JdbcGBase8aIT extends AbstractJdbcIT {
                 .database(GBASE_DATABASE)
                 .sourceTable(GBASE_SOURCE)
                 .sinkTable(GBASE_SINK)
+                .catalogDatabase(GBASE_DATABASE)
+                .catalogTable(GBASE_CATALOG_TABLE)
                 .createSql(CREATE_SQL)
                 .configFile(CONFIG_FILE)
                 .insertSql(insertSql)
@@ -195,6 +211,56 @@ public class JdbcGBase8aIT extends AbstractJdbcIT {
         } catch (Exception e) {
             throw new SeaTunnelRuntimeException(
                     JdbcITErrorCode.CREATE_TABLE_FAILED, "Fail to execute sql " + sql, e);
+        }
+    }
+
+    @Override
+    protected void initCatalog() {
+        String jdbcUrl = jdbcCase.getJdbcUrl().replace(HOST, dbServer.getHost());
+        catalog =
+                new Gbase8aCatalog(
+                        "gbase8a",
+                        jdbcCase.getUserName(),
+                        jdbcCase.getPassword(),
+                        JdbcUrlUtil.getUrlInfo(jdbcUrl),
+                        DRIVER_CLASS);
+        catalog.open();
+    }
+
+    /** GBase 8a does not enforce primary key or unique constraints, so no index is created. */
+    @Override
+    public void testCreateIndex() {}
+
+    /**
+     * Runs the same job twice against a sink table that does not exist yet: the first run must
+     * create it through {@code schema_save_mode}, the second run must truncate it through {@code
+     * data_save_mode = DROP_DATA}, so the row count stays equal to the source.
+     */
+    @TestTemplate
+    public void testSaveModeCreateTableAndDropData(TestContainer container)
+            throws IOException, InterruptedException, SQLException {
+        TablePath sinkTablePath = TablePath.of(GBASE_DATABASE, null, GBASE_SAVE_MODE_SINK);
+        catalog.dropTable(sinkTablePath, true);
+        try {
+            for (int i = 0; i < 2; i++) {
+                Container.ExecResult execResult = container.executeJob(SAVE_MODE_CONFIG_FILE);
+                Assertions.assertEquals(0, execResult.getExitCode(), execResult.getStderr());
+                Assertions.assertTrue(catalog.tableExists(sinkTablePath));
+                Assertions.assertEquals(100, countRows(GBASE_SAVE_MODE_SINK));
+            }
+        } finally {
+            catalog.dropTable(sinkTablePath, true);
+        }
+    }
+
+    private int countRows(String table) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet resultSet =
+                        statement.executeQuery(
+                                String.format(
+                                        "SELECT COUNT(*) FROM `%s`.`%s`", GBASE_DATABASE, table))) {
+            resultSet.next();
+            return resultSet.getInt(1);
         }
     }
 }
